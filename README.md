@@ -34,7 +34,7 @@ npm run dev
 |---|---|
 | `VITE_SUPABASE_URL` | URL del proyecto de Supabase |
 | `VITE_SUPABASE_ANON_KEY` | Anon key (segura de exponer en el cliente — la seguridad real la da RLS, no el secreto de la key) |
-| `VITE_LEADS_SHEET_URL` | Link a la hoja de Google Sheets con los candidatos, para el botón "Ver hoja de candidatos" |
+| `VITE_LEADS_SHEET_URL` | Fallback del botón "Ver hoja de candidatos", solo para cuando aún no hay ninguna corrida con `spreadsheet_id` registrado. En condiciones normales el botón usa el `spreadsheet_id` de la corrida más reciente en `ipler_execution_log` — la hoja cambia según la oferta activa, así que nunca está fija |
 
 ## Deploy
 

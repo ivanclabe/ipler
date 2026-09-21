@@ -24,3 +24,17 @@ export interface ExecutionLogRow {
   timestamp_fin: string | null
   created_at: string
 }
+
+export interface DashboardStats {
+  leads_hoy: number
+  leads_semana: number
+  runs_hoy: number
+  runs_recientes: number
+  fallos_recientes: number
+  tasa_exito_recientes: number | null
+  ultima_corrida_at: string | null
+  ultima_corrida_status: RunStatus | null
+  total_runs: number
+}
+
+export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'

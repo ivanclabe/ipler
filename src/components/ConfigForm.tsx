@@ -1,128 +1,71 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Save, Undo2, Loader2, CheckCircle2, SlidersHorizontal, KeyRound, Eye, EyeOff, Lock } from 'lucide-react'
-import { supabase } from '../lib/supabase'
-import type { WorkflowConfig } from '../types'
-import { StatusBadge } from './StatusBadge'
+import { Save, Undo2, CheckCircle2, SlidersHorizontal, KeyRound, Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
+import { Card } from './ui/Card'
+import { Skeleton } from './ui/Skeleton'
+import { EmptyState } from './ui/EmptyState'
+import { ErrorState } from './ui/ErrorState'
+import { StatusBadge } from './ui/StatusBadge'
+import { Field } from './ui/Field'
+import { Button } from './ui/Button'
+import { timeAgo } from '../lib/time'
+import type { useWorkflowConfig, ConfigFieldKey } from '../hooks/useWorkflowConfig'
 
-type FieldKey = 'computrabajo_email' | 'computrabajo_password' | 'oferta_oi' | 'max_candidatos'
+interface Props {
+  state: ReturnType<typeof useWorkflowConfig>
+}
 
-const FIELDS: { key: FieldKey; label: string; help: string; type: 'text' | 'password' | 'range' }[] = [
-  { key: 'computrabajo_email', label: 'Correo de acceso', help: 'Correo con el que el sistema inicia sesión.', type: 'text' },
-  { key: 'computrabajo_password', label: 'Contraseña', help: 'Contraseña de la cuenta de Computrabajo.', type: 'password' },
-  { key: 'oferta_oi', label: 'ID de la oferta', help: 'Identifica qué oferta de empleo revisa el sistema.', type: 'text' },
-  { key: 'max_candidatos', label: 'Máx. candidatos por corrida', help: 'Tope de candidatos nuevos por corrida (máx. 50, para evitar timeouts).', type: 'range' },
-]
-
-const READONLY_FIELDS: { key: 'empresa_cf' | 'portal_base_url'; label: string }[] = [
-  { key: 'empresa_cf', label: 'ID de la empresa' },
-  { key: 'portal_base_url', label: 'URL del portal' },
-]
-
-type Draft = Record<FieldKey, string | number>
-
-export function ConfigForm() {
-  const [current, setCurrent] = useState<WorkflowConfig | null>(null)
-  const [draft, setDraft] = useState<Draft | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [justSaved, setJustSaved] = useState(false)
+export function ConfigForm({ state }: Props) {
   const [showPassword, setShowPassword] = useState(false)
+  const {
+    config,
+    draft,
+    dirtyKeys,
+    conflictKeys,
+    setField,
+    discard,
+    save,
+    saving,
+    justSaved,
+    isLoading,
+    error,
+    hasNoConfig,
+  } = state
 
-  async function load() {
-    const { data, error } = await supabase
-      .from('ipler_workflow_config')
-      .select('*')
-      .eq('id', 'current')
-      .maybeSingle()
-    if (error) {
-      setError(error.message)
-    } else if (data) {
-      setCurrent(data as WorkflowConfig)
-      setDraft((prev) => prev ?? (data as WorkflowConfig))
-      setError(null)
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    load()
-    const channel = supabase
-      .channel('ipler_workflow_config_changes')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'ipler_workflow_config', filter: 'id=eq.current' },
-        (payload) => {
-          setCurrent(payload.new as WorkflowConfig)
-        }
-      )
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const dirtyFields = useMemo(() => {
-    if (!current || !draft) return []
-    return FIELDS.filter((f) => String(current[f.key]) !== String(draft[f.key]))
-  }, [current, draft])
-
-  function setField(key: FieldKey, value: string | number) {
-    setDraft((d) => (d ? { ...d, [key]: value } : d))
-  }
-
-  function discard() {
-    if (current) setDraft(current)
-    setShowPassword(false)
-  }
-
-  async function save() {
-    if (!draft || dirtyFields.length === 0) return
-    setSaving(true)
-    setError(null)
-    const payload: Record<string, unknown> = {}
-    dirtyFields.forEach((f) => {
-      payload[f.key] = f.type === 'range' ? Number(draft[f.key]) : draft[f.key]
-    })
-    payload.updated_at = new Date().toISOString()
-    payload.updated_by = 'Panel Ipler'
-
-    const { error } = await supabase.from('ipler_workflow_config').update(payload).eq('id', 'current')
-    setSaving(false)
-    if (error) {
-      setError(error.message)
-      return
-    }
-    setJustSaved(true)
-    setShowPassword(false)
-    setTimeout(() => setJustSaved(false), 2500)
-    await load()
-  }
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="rounded-2xl bg-surface card-shadow p-6">
-        <div className="flex items-center gap-2 text-ink-muted text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Cargando configuración…
+      <Card className="space-y-4 lg:sticky lg:top-6">
+        <div className="flex items-center gap-2.5">
+          <Skeleton variant="circle" className="h-8 w-8" />
+          <Skeleton className="h-4 w-32" />
         </div>
-      </div>
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </Card>
     )
   }
 
-  if (error && !current) {
+  if (error && !config) {
     return (
-      <div className="rounded-2xl bg-red-tint card-shadow p-6 text-sm text-red">
-        No se pudo cargar la configuración: {error}
-      </div>
+      <Card className="lg:sticky lg:top-6">
+        <ErrorState message={`No se pudo cargar la configuración: ${error.message}`} raw={error.raw} />
+      </Card>
     )
   }
 
-  if (!current || !draft) return null
+  if (hasNoConfig || !config || !draft) {
+    return (
+      <Card className="lg:sticky lg:top-6">
+        <EmptyState
+          title="Sin configuración todavía"
+          description="Esta pantalla se completará automáticamente cuando se registre la configuración inicial del flujo."
+        />
+      </Card>
+    )
+  }
 
-  const accessFields = FIELDS.filter((f) => f.key === 'computrabajo_email' || f.key === 'computrabajo_password')
-  const otherFields = FIELDS.filter((f) => f.key !== 'computrabajo_email' && f.key !== 'computrabajo_password')
+  function fieldProps(key: ConfigFieldKey) {
+    return { dirty: dirtyKeys.has(key) }
+  }
 
   return (
     <div className="rounded-2xl bg-surface card-shadow overflow-hidden lg:sticky lg:top-6">
@@ -134,17 +77,17 @@ export function ConfigForm() {
           <div>
             <h2 className="text-base font-bold text-ink leading-tight">Configuración</h2>
             <p className="text-[11px] text-ink-faint mt-0.5">
-              {new Date(current.updated_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              {new Date(config.updated_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
         </div>
       </div>
 
       <div className="px-5 pb-2">
-        {dirtyFields.length > 0 ? (
+        {dirtyKeys.size > 0 ? (
           <StatusBadge tone="warn">
             <span className="h-1.5 w-1.5 rounded-full bg-amber animate-[pulse-dot_1.8s_ease-in-out_infinite]" />
-            {dirtyFields.length} sin guardar
+            {dirtyKeys.size} sin guardar
           </StatusBadge>
         ) : justSaved ? (
           <StatusBadge tone="ok">
@@ -155,124 +98,136 @@ export function ConfigForm() {
         )}
       </div>
 
+      {/* Grupo 1: Conexión a Computrabajo */}
       <div className="px-5 pb-1 pt-2">
         <div className="rounded-xl border border-line bg-surface-2 p-3.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-muted mb-3">
-            <KeyRound className="h-3 w-3" /> Acceso a Computrabajo
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-muted mb-3" title="Credenciales que el sistema usa para iniciar sesión en Computrabajo automáticamente.">
+            <KeyRound className="h-3 w-3" /> Conexión a Computrabajo
           </div>
           <div className="space-y-3">
-            {accessFields.map((f) => {
-              const isDirty = String(current[f.key]) !== String(draft[f.key])
-              return (
-                <div key={f.key}>
-                  <div className="text-xs font-semibold text-ink flex items-center gap-1.5 mb-1.5">
-                    {f.label}
-                    {isDirty && <span className="h-1.5 w-1.5 rounded-full bg-amber shrink-0" />}
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={f.type === 'password' && !showPassword ? 'password' : 'text'}
-                      value={String(draft[f.key])}
-                      onChange={(e) => setField(f.key, e.target.value)}
-                      className={`w-full rounded-lg border px-3 py-2 text-sm text-ink bg-surface focus:outline-none focus:border-blue transition-colors ${
-                        f.type === 'password' ? 'pr-9' : ''
-                      } ${isDirty ? 'border-amber bg-amber-tint' : 'border-line'}`}
-                    />
-                    {f.type === 'password' && (
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted transition-colors"
-                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                      >
-                        {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-ink-faint mt-1">{f.help}</div>
-                </div>
-              )
-            })}
+            <Field label="Correo de acceso" help="Correo con el que el sistema inicia sesión." {...fieldProps('computrabajo_email')}>
+              <input
+                type="text"
+                value={String(draft.computrabajo_email)}
+                onChange={(e) => setField('computrabajo_email', e.target.value)}
+                className={`w-full rounded-lg border px-3 py-2 text-sm text-ink bg-surface focus:outline-none focus:border-blue transition-colors ${
+                  dirtyKeys.has('computrabajo_email') ? 'border-amber bg-amber-tint' : 'border-line'
+                }`}
+              />
+            </Field>
+            <div>
+              <div className="text-xs font-semibold text-ink flex items-center gap-1.5 mb-1.5">
+                Contraseña
+                {dirtyKeys.has('computrabajo_password') && <span className="h-1.5 w-1.5 rounded-full bg-amber shrink-0" />}
+              </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={String(draft.computrabajo_password)}
+                  onChange={(e) => setField('computrabajo_password', e.target.value)}
+                  className={`w-full rounded-lg border px-3 py-2 pr-9 text-sm text-ink bg-surface focus:outline-none focus:border-blue transition-colors ${
+                    dirtyKeys.has('computrabajo_password') ? 'border-amber bg-amber-tint' : 'border-line'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink-muted transition-colors"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                >
+                  {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <div className="text-[11px] text-ink-faint mt-1">Contraseña de la cuenta de Computrabajo.</div>
+            </div>
+            {conflictKeys.size > 0 && (
+              <div className="flex items-start gap-1.5 rounded-lg bg-amber-tint px-3 py-2 text-[11px] text-amber">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Uno de estos campos cambió del lado del servidor mientras lo editabas. Tu cambio sin guardar se conserva; guarda para sobrescribirlo o descarta para tomar el valor nuevo.
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       <div className="divide-y divide-line px-5">
-        {otherFields.map((f) => {
-          const isDirty = String(current[f.key]) !== String(draft[f.key])
-          return (
-            <div key={f.key} className="py-3.5">
-              <div className="text-xs font-semibold text-ink flex items-center gap-1.5 mb-1.5">
-                {f.label}
-                {isDirty && <span className="h-1.5 w-1.5 rounded-full bg-amber shrink-0" />}
-              </div>
-              {f.type === 'range' ? (
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={1}
-                    max={50}
-                    value={Number(draft[f.key])}
-                    onChange={(e) => setField(f.key, Number(e.target.value))}
-                    className="flex-1 accent-blue"
-                  />
-                  <span className="font-mono tabular-nums text-blue-dark font-bold text-sm min-w-[3ch] text-right">
-                    {draft[f.key]}
-                  </span>
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  value={String(draft[f.key])}
-                  onChange={(e) => setField(f.key, e.target.value)}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm text-ink bg-surface-2 focus:outline-none focus:border-blue focus:bg-surface transition-colors ${
-                    isDirty ? 'border-amber bg-amber-tint' : 'border-line'
-                  }`}
-                />
-              )}
-              <div className="text-[11px] text-ink-faint mt-1">{f.help}</div>
-            </div>
-          )
-        })}
-
+        {/* Grupo 2: Automatización */}
         <div className="py-3.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-muted mb-2">
-            <Lock className="h-3 w-3" /> Solo lectura
-          </div>
-          <div className="space-y-2.5">
-            {READONLY_FIELDS.map((f) => (
-              <div key={f.key} className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
-                <span className="text-xs text-ink-muted shrink-0">{f.label}</span>
-                <span className="text-xs font-mono text-ink truncate text-right" title={String(current[f.key])}>
-                  {String(current[f.key])}
+          <div className="text-[11px] font-bold uppercase tracking-wide text-ink-muted mb-2.5">Automatización</div>
+          <div className="space-y-3.5">
+            <Field label="ID de la oferta" help="Identifica qué oferta de empleo revisa el sistema." {...fieldProps('oferta_oi')}>
+              <input
+                type="text"
+                value={String(draft.oferta_oi)}
+                onChange={(e) => setField('oferta_oi', e.target.value)}
+                className={`w-full rounded-lg border px-3 py-2 text-sm text-ink bg-surface-2 focus:outline-none focus:border-blue focus:bg-surface transition-colors ${
+                  dirtyKeys.has('oferta_oi') ? 'border-amber bg-amber-tint' : 'border-line'
+                }`}
+              />
+              {String(draft.oferta_oi).trim() === '' && (
+                <div className="text-[11px] text-red mt-1">El ID de la oferta no puede quedar vacío.</div>
+              )}
+            </Field>
+            <Field label="Máx. candidatos por corrida" help="Tope de candidatos nuevos por corrida (máx. 50, para evitar timeouts)." {...fieldProps('max_candidatos')}>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={1}
+                  max={50}
+                  value={Number(draft.max_candidatos)}
+                  onChange={(e) => setField('max_candidatos', Number(e.target.value))}
+                  className="flex-1 accent-blue"
+                />
+                <span className="font-mono tabular-nums text-blue-dark font-bold text-sm min-w-[3ch] text-right">
+                  {draft.max_candidatos}
                 </span>
               </div>
-            ))}
+            </Field>
+          </div>
+        </div>
+
+        {/* Grupo 3: Sistema */}
+        <div className="py-3.5">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-muted mb-2">
+            <Lock className="h-3 w-3" /> Sistema
+          </div>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
+              <span className="text-xs text-ink-muted shrink-0">ID de la empresa</span>
+              <span className="text-xs font-mono text-ink truncate text-right" title={config.empresa_cf}>
+                {config.empresa_cf}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
+              <span className="text-xs text-ink-muted shrink-0">URL del portal</span>
+              <span className="text-xs font-mono text-ink truncate text-right" title={config.portal_base_url}>
+                {config.portal_base_url}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
+              <span className="text-xs text-ink-muted shrink-0">Última modificación</span>
+              <span className="text-xs text-ink truncate text-right">
+                {config.updated_by ?? 'Desconocido'}, {timeAgo(config.updated_at)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="mx-5 mb-4 rounded-lg bg-red-tint px-4 py-2.5 text-xs text-red">{error}</div>
+        <div className="mx-5 mb-4">
+          <ErrorState compact message={error.message} raw={error.raw} />
+        </div>
       )}
 
-      {dirtyFields.length > 0 && (
+      {dirtyKeys.size > 0 && (
         <div className="flex items-center gap-2 border-t border-line bg-surface-2 px-5 py-4">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-dark transition-colors disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          <Button onClick={save} loading={saving} icon={<Save className="h-3.5 w-3.5" />} className="flex-1">
             Guardar
-          </button>
-          <button
-            onClick={discard}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink-muted hover:bg-surface hover:text-ink transition-colors disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="secondary" onClick={discard} disabled={saving} aria-label="Descartar cambios">
             <Undo2 className="h-3.5 w-3.5" />
-          </button>
+          </Button>
         </div>
       )}
     </div>
