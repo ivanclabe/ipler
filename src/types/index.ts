@@ -38,3 +38,14 @@ export interface DashboardStats {
 }
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
+
+export interface AuditLogRow {
+  id: number
+  actor_id: string | null
+  /** Correo de quien hizo el cambio (registros anteriores: nombre de usuario). */
+  actor_username: string
+  action: string
+  target: string | null
+  details: Record<string, unknown>
+  created_at: string
+}
